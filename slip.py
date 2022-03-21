@@ -1,3 +1,6 @@
+from distutils.command.clean import clean
+import re
+
 class CamadaEnlace:
     ignore_checksum = False
 
@@ -38,27 +41,35 @@ class CamadaEnlace:
         if self.callback:
             self.callback(datagrama)
 
-
 class Enlace:
     def __init__(self, linha_serial):
         self.linha_serial = linha_serial
         self.linha_serial.registrar_recebedor(self.__raw_recv)
+        self.buffer = b''
 
     def registrar_recebedor(self, callback):
         self.callback = callback
 
     def enviar(self, datagrama):
-        # TODO: Preencha aqui com o código para enviar o datagrama pela linha
-        # serial, fazendo corretamente a delimitação de quadros e o escape de
-        # sequências especiais, de acordo com o protocolo CamadaEnlace (RFC 1055).
-        pass
+        datagrama = datagrama.replace(b'\xDB', b'\xDB\xDD').replace(b'\xC0', b'\xDB\xDC')
+        self.linha_serial.enviar(b'\xC0' + bytearray(datagrama) + b'\xC0')
 
     def __raw_recv(self, dados):
-        # TODO: Preencha aqui com o código para receber dados da linha serial.
-        # Trate corretamente as sequências de escape. Quando ler um quadro
-        # completo, repasse o datagrama contido nesse quadro para a camada
-        # superior chamando self.callback. Cuidado pois o argumento dados pode
-        # vir quebrado de várias formas diferentes - por exemplo, podem vir
-        # apenas pedaços de um quadro, ou um pedaço de quadro seguido de um
-        # pedaço de outro, ou vários quadros de uma vez só.
-        pass
+        if self.buffer != b'':
+            dados = self.buffer + dados
+        msg = re.search(b'(.+?)\\xc0', dados)
+        while msg is not None:
+            msg = msg.group(0)
+            dados = re.sub(msg, b'', dados) 
+            msg = re.sub(b'\xc0', b'', msg) \
+                .replace(b'\xdb\xdc', b'\xc0')  \
+                .replace(b'\xdb\xdd', b'\xdb')
+            try:
+                self.callback(msg)
+            except:
+                import traceback
+                traceback.print_exc()
+            finally:
+                self.buffer = b''
+            msg = re.search(b'(.+?)\\xc0', dados)
+        self.buffer = dados
